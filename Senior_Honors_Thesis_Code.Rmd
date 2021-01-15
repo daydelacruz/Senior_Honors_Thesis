@@ -4,27 +4,532 @@ author: "Dayna De La Cruz"
 date: "12/24/2020"
 output: html_document
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+Still have the three duplicates: RO114, RO139 , RO293
+## Loading Packages
+```{r, include=TRUE, message=FALSE, warning=FALSE, results="hide"}
+#loading needed packages
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(cowplot)
+library(ggplot2)
+library(nnet)
+library(ggpubr)
 ```
 
-## R Markdown
+## Preparing Data
+```{r, include=TRUE, message=FALSE, warning=FALSE, results="hide"}
+#Loading and preparing data
+Light_Data <- read_csv("~/Desktop/Senior_Honors_Thesis/R_code/Data/Light_Data.csv")
+BiomassAlloc_Data <- read_csv("~/Desktop/Senior_Honors_Thesis/R_Code/Data/BiomassAlloc_Data.csv")
+Leaf_Damage_Data <- read_csv("~/Desktop/Senior_Honors_Thesis/R_Code/Data/Leaf_Damage_Data.csv")
+BiomassAlloc_Data$Tree_ID <- as.factor(BiomassAlloc_Data$Tree_ID)
+BiomassAlloc_Data$Seedling_ID <- as.factor(BiomassAlloc_Data$Seedling_ID)
+Light_Data$Tree_ID <- as.factor(Light_Data$Tree_ID)
+Leaf_Damage_Data <- filter(Leaf_Damage_Data, Sept_survival == "A")
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# Wrangling: Merged BiomassAlloc_Data and Leaf_Damage_Data + select/filter needed material 
+Biomass_LeafDam<-merge(BiomassAlloc_Data, Leaf_Damage_Data)%>%
+  filter(Sept_survival == "A")#filtered for seedlings that were alive by the end of the experiment 
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Wrangling: Merged Biomass_LeafDam and Light_Data
+Biomass_Leaf_Light<-merge(Biomass_LeafDam,Light_Data)
 
-```{r cars}
-summary(cars)
+#for BiomassAlloc_Data can recreate by merging biomassAlloc with Leaf_Damage_Data, then do filter(Sept_survival == "A")
 ```
 
-## Including Plots
+## Leaf Damage vs. Conspecificity
+Graph: yes use this one
+Results: Seedling with differing conspecificity within the first and fourth leaf damage category did have a significant difference.
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Wrangling needed material
+red_oak_LD <- Leaf_Damage_Data %>%
+  filter(Seedling_Species == "Red_Oak", Sept_survival == "A") %>%
+  group_by(Tree_ID, C_H) %>%
+  summarise(LD1 = sum(LD_category_Sept == "1")/n(),
+            LD2 = sum(LD_category_Sept == "2")/n(),
+            LD3 = sum(LD_category_Sept == "3")/n(),
+            LD4 = sum(LD_category_Sept == "4")/n()) %>%
+  gather(key = LD_cat, value = LD_proportion, LD1:LD4) %>%
+  group_by(C_H, LD_cat) %>%
+  summarise(mean_prop_LD = mean(LD_proportion)*100,
+            sterr_LD = sd(LD_proportion)/sqrt(length(LD_proportion))*100)
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+#Bar graph: Leaf damage category vs mean lead damamge across conspecificity
+ggplot(aes(x=LD_cat, y= mean_prop_LD, fill = C_H), data=red_oak_LD) +
+  geom_bar(stat= "identity", width = .5, position = "dodge") +
+  geom_errorbar(aes(ymin = mean_prop_LD - sterr_LD, ymax = mean_prop_LD + sterr_LD), width = .5, position = "dodge") +
+  labs(y = "Percent of red oak seedlings (%)",
+       x = "Leaf damage category") +
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%")) +
+  #scale_fill_discrete(labels = c("Conspecific","Heterospecific"), name = "") +
+  theme_classic()+
+  theme(legend.position = c(0.6,0.8))+
+  scale_fill_manual(values=c('red','lightgray'))+
+  guides(fill=guide_legend(title="Conspecificity"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))
+```
+Two-sampled T-test
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+##Two-sampled T-test
+#Filter to each leaf damage category
+LD_Cons<- Leaf_Damage_Data %>%
+  filter(Seedling_Species == "Red_Oak", Sept_survival == "A", C_H == "C") %>%
+  group_by(Tree_ID) %>%
+  summarise(LD1C = sum(LD_category_Sept == "1")/n(),
+            LD2C = sum(LD_category_Sept == "2")/n(),
+            LD3C = sum(LD_category_Sept == "3")/n(),
+            LD4C = sum(LD_category_Sept == "4")/n())
+LD_Het<- Leaf_Damage_Data %>%
+  filter(Seedling_Species == "Red_Oak", Sept_survival == "A", C_H == "H") %>%
+  group_by(Tree_ID) %>%
+  summarise(LD1H = sum(LD_category_Sept == "1")/n(),
+            LD2H = sum(LD_category_Sept == "2")/n(),
+            LD3H = sum(LD_category_Sept == "3")/n(),
+            LD4H = sum(LD_category_Sept == "4")/n())
+tt_LD1 <- t.test(LD_Cons$LD1C, LD_Het$LD1H, alternative = "two.sided", var.equal = FALSE)
+tt_LD1
+tt_LD2 <- t.test(LD_Cons$LD2C, LD_Het$LD2H, alternative = "two.sided", var.equal = FALSE)
+tt_LD2
+tt_LD3 <- t.test(LD_Cons$LD3C, LD_Het$LD3H, alternative = "two.sided", var.equal = FALSE)
+tt_LD3
+tt_LD4 <- t.test(LD_Cons$LD4C, LD_Het$LD4H, alternative = "two.sided", var.equal = FALSE)
+tt_LD4 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Leaf Damage vs. Canopy Light  
+Kept all the logs only.
+Best Graph to present: first boxplot and scatter plot? Scatter plot just to show same pattern of the previous leaf damage bar graph. Are theretoo many variables if we include conspecificity here (second graph) I already added a seperate graph above of conspecificity. 
+Second graph is answering following question: Does conspecificity affect the way light affects seedlings within each leaf damage category? Does the way light affect seedlings in each leaf damamge cateogry vary on their conspecificty? Also showing the light distribution.
+Results: It seems like there was no significant relationship between light and leaf damage. Is there any way to include conspecificity in the test? Because if so, it would be nice to say: yes consp had an affect on leaf damage, no light did not have an affect in leaf damage but did conspecificity affect the way light affects seedlings within each leaf damage category? 
+
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Wrangling: Merged Light_Data and Leaf_Damage_Data + selected/grouped by needed material  
+Light_LeafDamage<-merge(Light_Data,Leaf_Damage_Data)%>%
+  filter(Sept_survival == "A")%>%
+  group_by(C_H)
+Light_LeafDamage$LD_category_Sept<- as.factor(Light_LeafDamage$LD_category_Sept)
+
+# Box Plot: Gap Fraction vs. leaf damage
+ggplot(Light_LeafDamage, aes(x=LD_category_Sept, y=Gap_Fraction)) + 
+  geom_boxplot()+
+  labs(x="Leaf Damage Category", y = "Gap Fraction")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  guides(fill=guide_legend(title="Conspecificity"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+
+##Box Plot: Gap Fraction vs leaf damage split between C_H (probly not using this)
+ggplot(Light_LeafDamage, aes(x=LD_category_Sept, y=Gap_Fraction, fill=C_H)) + 
+  geom_boxplot()+
+  labs(x="Leaf Damage Category", y = "Gap Fraction")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  guides(fill=guide_legend(title="Conspecificity"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+
+##Scatter Plot: Gap Fraction vs leaf damage split between C_H
+ggplot(Light_LeafDamage, aes(x=Gap_Fraction, y=LD_category_Sept, color=C_H)) + 
+  geom_jitter(width = 0.25, height = 0.25)+
+  labs(x="Gap Fraction", y = "Leaf Damage Category")+
+  scale_y_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  guides(fill=guide_legend(title="Conspecificity"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+Multinomial Logistical Regression
+we are using this because the leaf damamge is connected and not unrelateed categories correct?
+need refresher on how to read this, conspecificty was not included in this analysis correct? 
+```{r}
+# Performing multinomial logistic regression
+#Light_LeafDamage$LD_category_Sept2 <- relevel(Light_LeafDamage$LD_category_Sept, ref = "4")
+test <- multinom(LD_category_Sept ~ log(Gap_Fraction) , data = Light_LeafDamage)
+summary(test)
+
+z <- summary(test)$coefficients/summary(test)$standard.errors
+z
+
+## 2-tailed z test
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+p
+```
+
+## Leaf Damage vs. Evenness (new one added)
+Graph: yes use this one
+Results: Seedling with differing evenness within each leaf damage category did not have a significant difference. Think about the mean even if it is not significant. ("higher mean")
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Wrangling needed material
+red_oak_LD_Eve <- Leaf_Damage_Data %>%
+  filter(Seedling_Species == "Red_Oak", Sept_survival == "A") %>%
+  group_by(Tree_ID, Plot_Type) %>%
+  summarise(LD1 = sum(LD_category_Sept == "1")/n(),
+            LD2 = sum(LD_category_Sept == "2")/n(),
+            LD3 = sum(LD_category_Sept == "3")/n(),
+            LD4 = sum(LD_category_Sept == "4")/n()) %>%
+  gather(key = LD_cat, value = LD_proportion, LD1:LD4) %>%
+  group_by(Plot_Type, LD_cat) %>%
+  summarise(mean_prop_LD = mean(LD_proportion)*100,
+            sterr_LD = sd(LD_proportion)/sqrt(length(LD_proportion))*100)
+
+
+#Bar graph: Leaf damage category vs mean lead damamge across conspecificity
+ggplot(aes(x=LD_cat, y= mean_prop_LD, fill = Plot_Type), data=red_oak_LD_Eve) +
+  geom_bar(stat= "identity", width = .5, position = "dodge") +
+  geom_errorbar(aes(ymin = mean_prop_LD - sterr_LD, ymax = mean_prop_LD + sterr_LD), width = .5, position = "dodge") +
+  labs(y = "Percent of red oak seedlings (%)",
+       x = "Leaf damage category") +
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%")) +
+  theme_classic()+
+  theme(legend.position = c(0.6,0.8))+
+  scale_fill_manual(values=c('blue','lightgray'))+
+  guides(fill=guide_legend(title="Evenness"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))
+```
+Two-sampled T-test
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+##Two-sampled T-test
+#Filter to each leaf damage category
+LD_Even<- Leaf_Damage_Data %>%
+  filter(Seedling_Species == "Red_Oak", Sept_survival == "A", Plot_Type == "Even") %>%
+  group_by(Tree_ID) %>%
+  summarise(LD1E = sum(LD_category_Sept == "1")/n(),
+            LD2E = sum(LD_category_Sept == "2")/n(),
+            LD3E = sum(LD_category_Sept == "3")/n(),
+            LD4E = sum(LD_category_Sept == "4")/n())
+LD_Uneven<- Leaf_Damage_Data %>%
+  filter(Seedling_Species == "Red_Oak", Sept_survival == "A", Plot_Type == "Uneven") %>%
+  group_by(Tree_ID) %>%
+  summarise(LD1U = sum(LD_category_Sept == "1")/n(),
+            LD2U = sum(LD_category_Sept == "2")/n(),
+            LD3U = sum(LD_category_Sept == "3")/n(),
+            LD4U = sum(LD_category_Sept == "4")/n())
+tt_LDE1 <- t.test(LD_Even$LD1E, LD_Uneven$LD1U, alternative = "two.sided", var.equal = FALSE)
+tt_LDE1
+tt_LDE2 <- t.test(LD_Even$LD2E, LD_Uneven$LD2U, alternative = "two.sided", var.equal = FALSE)
+tt_LDE2
+tt_LDE3 <- t.test(LD_Even$LD3E, LD_Uneven$LD3U, alternative = "two.sided", var.equal = FALSE)
+tt_LDE3
+tt_LDE4 <- t.test(LD_Even$LD4E, LD_Uneven$LD4U, alternative = "two.sided", var.equal = FALSE)
+tt_LDE4 
+```
+
+
+## Growth Allocation vs. Leaf Damage
+### A:B Ratio vs. Leaf Damage
+Best Graph to Present: no color
+Results: The A:B ratios within each leaf damage category were significantly different. (some of the groups were different from the overall mean). Do I perform Tukey Test? yes, in order to see which box plots are different. Howevever, there was no significant difference between the A:B ratios of each conspecificity within each leaf damage category right???? 
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Scatter Plot + Box Plot: log(A:B ratio) vs leaf damage category
+#no color
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=log(A_B_ratio))) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "log(A:B Ratio)")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+
+#color C_H
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=log(A_B_ratio), color=C_H)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "log(A:B Ratio)")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+What does the astriks beside the intercept mean again? Looking at the interaction betwen CH and leaf damage and how that affects A:B ratio
+ANOVA: Analysis of Variance: for log(A:B Ratio) vs. Leaf Damage
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_A_B<-lm(log(A_B_ratio)~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_A_B)
+```
+### A:B Ratio Average vs. Leaf Damage
+Do i need this?? I think I can scrap
+
+### Aboveground Biomass vs. Leaf Damage & Belowground Biomass vs. Leaf Damage
+Results:no sig diff
+Best Graphs to Present: Do i really need both graphs? I feel like i def need the no color one for both aboveground and belowground biomass. But shouldnt i have a box plot with onylc cons and no leaf damage seperately? (further below)
+
+#### Aboveground Biomass vs. Leaf Damage
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# log(Aboveground biomass)
+Biomass_LeafDam$total_biomass<-(Biomass_LeafDam$Aboveground_biomas_g+Biomass_LeafDam$Belowground_biomas_g)
+Biomass_LeafDam$aboveground_fraction<-(Biomass_LeafDam$Aboveground_biomas_g/Biomass_LeafDam$total_biomass)
+Biomass_LeafDam$belowground_fraction<-(Biomass_LeafDam$Belowground_biomas_g/Biomass_LeafDam$total_biomass)
+# Scatter Plot + Box Plot: log(Aboveground Biomass) vs. Leaf Damage
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=log(Aboveground_biomas_g))) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "log(Aboveground Biomass)")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+#box plot w/ conspecificity
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=log(Aboveground_biomas_g),color=C_H)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "log(Aboveground Biomass)")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+
+```
+Intercept Significance?
+ANOVA: Analysis of Variance: Aboveground Biomass
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_A<-lm(log(Aboveground_biomas_g)~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_A)
+```
+
+#### Belowground Biomass vs. Leaf Damage
+Graphs: def non color. Do i really need color?
+Results: no sig dif
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Scatter Plot + Box Plot: Belowground Biomass vs. Leaf Damage
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=Belowground_biomas_g)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "Belowground Biomass")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+#box plot w/ conspecificity
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=Belowground_biomas_g,color=C_H)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "Belowground Biomass")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance: Belowground Biomass
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_B<-lm(Belowground_biomas_g~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_B)
+```
+
+### Aboveground Fractions vs. Leaf Damage & Belowground Fractions vs. Leaf Damage
+#### Aboveground Fractions vs. Leaf Damage 
+Results: the aboveground biomass fraction results from each leaf damage category were significanly different. Do I perform a Tukey test?? Yes. 
+
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Scatter Plot + Box Plot: Aboveground Fraction (aboveground/total biomass)
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=aboveground_fraction)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "Aboveground Biomass Fraction")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance for Aboveground Biomass Fraction
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_AF<-lm(aboveground_fraction~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_AF)
+#What if I get the average abovegound fraction for each leaf damage category and then plot as a lm model??
+```
+
+#### Belowground Fractions vs. Leaf Damage 
+Results: The Belowground Biomass Fraction measurments were significantly different. Tukey test
+
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Scatter Plot + Box Plot: Belowground Fraction
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=belowground_fraction)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "Belowground Biomass Fraction")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance for Belowground Biomass Fraction
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_BF<-lm(belowground_fraction~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_BF)
+```
+#### Leaf Biomass Fraction vs. Leaf Damage (new one)
+Note:Shows Small fraction of biomass is allocated ot leaves. Note: thinking about * and + for test
+Results: significant!!! Tukey!
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Wrangling Data: creating new column for leaf biomass
+Biomass_LeafDam$LeafBiomass_fraction<-(Biomass_LeafDam$`Leaf_biomass _g`/Biomass_LeafDam$total_biomass)
+# Wrangling Data: removing na's
+Biomass_LeafDam$LeafBiomass_fraction <- na.omit(Biomass_LeafDam$LeafBiomass_fraction)
+
+# Scatter Plot + Box Plot: Leaf Biomass Fraction
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=LeafBiomass_fraction)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "Leaf Biomass Fraction")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance for Leaf Biomass Fraction
+Do i need to include the C_H here even if not testing for it? Is it because of Covariates??
+The log for the anova was not working due to infinate, NA's. 
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_LB<-lm(LeafBiomass_fraction~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_LB)
+```
+
+
+#### Stem Biomass Fraction vs. vs. Leaf Damage (new one)
+Results: Not sig
+Note: thinking about * and + for test
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Wrangling Data: creating new column for stem biomass
+Biomass_LeafDam$StemBiomass_fraction<-(Biomass_LeafDam$`Stem_biomass _g`/Biomass_LeafDam$total_biomass)
+
+# Scatter Plot + Box Plot: Stem Biomass Fraction
+ggplot(Biomass_LeafDam, aes(x=as.factor(LD_category_Sept), y=StemBiomass_fraction)) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Leaf Damage Category", y = "Stem Biomass Fraction")+
+  scale_x_discrete(labels = c("0-25%","26-50%","51-75%","76-100%"))+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance for Leaf Biomass Fraction
+The log for the anova was not working due to infinate, NA's. Does the log have to be included
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_LD_SB<-lm(StemBiomass_fraction~LD_category_Sept*C_H, data=Biomass_LeafDam)
+summary(ANOVA_LD_SB)
+```
+
+## A:B Ratio vs. Conspecificity (new one added to seperate)
+should i have this one? Is this a good way to express it??
+note: past graph sort of testing this.....can use this to develop
+box plot: log(A:B ratio vs conspecificity)
+Results: There was no significant difference between the seedlings' A:B ratios with differing conspecificities
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Box Plot + Scatter Plot: log(A:B Ratio) vs. Conspecificity 
+ggplot(Biomass_LeafDam, aes(x=as.factor(C_H), y=log(A_B_ratio))) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Conspecificity", y = "log(A:B Ratio)")+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance for log(A:B Ratio) vs. Conspecificity
+Two samples T-test
+Should I just do a two sampled t-test? If I do, i need to check variance first. But do I need to get the avarages of each in a specific format.. did it, need help because not working
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+ #Creating seperate datasets to calculate average A:B ratio for each conspecificity
+#Cons <- Biomass_LeafDam %>%
+        #select(A_B_ratio,C_H) %>%
+        #filter(C_H == "C")%>%
+  #summarise(AB_Avg_C = mean(A_B_ratio))
+
+#Het <- Biomass_LeafDam %>%
+        #select(A_B_ratio,C_H) %>%
+        #filter(C_H == "H")%>%
+  #summarise(AB_Avg_H = mean(A_B_ratio))
+#AB_Cons <- merge(Cons, Het) # Merging both data sets
+
+# Two sampled T-test: 
+#Cons <- Biomass_LeafDam %>%
+       # select(A_B_ratio,C_H) %>%
+       # filter(C_H == "C")
+#var(Cons$A_B_ratio)
+
+#Het <- Biomass_LeafDam %>%
+    #    select(A_B_ratio,C_H) %>%
+     #   filter(C_H == "H")
+#var(Het$A_B_ratio)
+#tt_AB_Cons <- t.test(AB_Cons$AB_Avg_C,AB_Cons$AB_Avg_H,var.equal = F)
+
+#ANOVA: Analysis of Variance
+ANOVA_AB_Cons<-lm(log(A_B_ratio)~C_H, data=Biomass_LeafDam)
+summary(ANOVA_AB_Cons)
+```
+
+Stopped here with Jackie
+## A:B Ratio vs. Light
+### A:B Ratio across light: each seedling
+
+Best graph to present: Keep only the log for both seedling and site level graph (Do i need a log?)
+Results: There were no significant relationships between the log(A:B) and the gap fraction in both the individual seedling and site level
+Note: do these need logs at all? Do I also need to log transform the Gap Fraction? If so, do not forget to also change the linear regression analysis.
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Scatter plot: A:B across continous light 
+ggplot(Biomass_Leaf_Light, aes(x=Gap_Fraction, y=A_B_ratio))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  labs(x = "Gap Fraction (%)", y = "A:B Ratio")+
+  theme_bw()
+
+# Scatter plot: log(A:B) across continous light 
+ggplot(Biomass_Leaf_Light, aes(x=Gap_Fraction, y=log(A_B_ratio)))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  labs(x = "Gap Fraction (%)", y = "log(A:B Ratio)")+
+  theme_bw()
+```
+Linear Regression Analysis:  log (A:B) vs. Gap Fraction
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#Linear regression analysis (not signifant)
+LR_Light_AB<-lm(log(A_B_ratio)~(Gap_Fraction), data=Biomass_Leaf_Light)
+summary(LR_Light_AB)
+```
+
+
+### A:B Ratio average across light: each plot
+Graph: Keep only the log? Which one do i keep? Does it really need a log?
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Average of A:B per site 
+# Wrangling: Created new column to calculaet the Average A:B ratio of each site
+AB_Avg<-group_by(Biomass_LeafDam, Tree_ID)%>%
+  summarise(AB_Average=mean(A_B_ratio, na.rm = T),
+            count=n()) #this will ignore the NA's
+AB_Avg_Light<-merge(Light_Data,AB_Avg)
+
+# Scatter plot: A:B average per plot across continous light
+ggplot(AB_Avg_Light, aes(x=Gap_Fraction, y=AB_Average))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  labs(x = "Gap Fraction (%)", y = "A:B Ratio Average")+
+  theme_bw()
+
+# Scatter plot: log(A:B average) per plot across continous light
+ggplot(AB_Avg_Light, aes(x=Gap_Fraction, y=log(AB_Average)))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  labs(x = "Gap Fraction (%)", y = "log(A:B Ratio Average)")+
+  theme_bw()
+```
+Linear Regression Analysis: log (A:B Average) vs. Gap Fraction
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#Linear regression analysis (not signifant)
+LR_Light_AB_Avg<-lm(log(AB_Average)~Gap_Fraction, data=AB_Avg_Light)
+summary(LR_Light_AB_Avg)
+```
+
+## Growth Allocation vs. Evenness (new one added)
+Results"
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# Box Plot + Scatter Plot: log(A:B Ratio) vs. Evenness 
+ggplot(Biomass_LeafDam, aes(x=as.factor(Plot_Type), y=log(A_B_ratio))) + 
+  geom_jitter(width = 0.25, height = 0, alpha=0.5)+
+  geom_boxplot(alpha=0.1)+
+  labs(x="Evenness", y = "log(A:B Ratio)")+
+  theme(axis.title.x = element_text(size=15))+theme(axis.title.y = element_text(size=15))+
+  theme_classic()
+```
+ANOVA: Analysis of Variance for log(A:B Ratio) vs. Evenness
+Results: There was no significant difference between the seedlings' A:B ratios with differing evenness
+```{r, include=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#ANOVA: Analysis of Variance
+ANOVA_AB_Even<-lm(log(A_B_ratio)~Plot_Type, data=Biomass_LeafDam)
+summary(ANOVA_AB_Even)
+```
